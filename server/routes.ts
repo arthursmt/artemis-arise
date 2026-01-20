@@ -119,20 +119,20 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Proposal not found" });
       }
 
+      // Cannot make decisions on already completed proposals
+      if (proposal.stage === ProposalStage.APPROVED || proposal.stage === ProposalStage.REJECTED) {
+        return res.status(400).json({
+          error: "Cannot make decisions on completed proposals",
+          stage: proposal.stage,
+        });
+      }
+
       // Validate that decision stage matches current proposal stage
       if (proposal.stage !== decisionData.stage) {
         return res.status(400).json({
           error: "Decision stage does not match proposal stage",
           currentStage: proposal.stage,
           decisionStage: decisionData.stage,
-        });
-      }
-
-      // Cannot make decisions on already completed proposals
-      if (proposal.stage === ProposalStage.APPROVED || proposal.stage === ProposalStage.REJECTED) {
-        return res.status(400).json({
-          error: "Cannot make decisions on completed proposals",
-          stage: proposal.stage,
         });
       }
 
