@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+// this was removed for cleaness import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -14,6 +15,7 @@ declare module "http" {
 
 app.use(
   express.json({
+    limit: "50mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
@@ -21,6 +23,46 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// ===============================
+// CORS (critical for Artemis Gate)
+// ===============================
+app.use((req, res, next) => {
+  const origin = req.headers.origin as string | undefined;
+
+  // For MVP: reflect origin if present, otherwise allow "*"
+  // (reflection is safer for browsers than always "*")
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Accept, Authorization, x-gate-role, x-gate-user-id"
+  );
+  res.setHeader("Access-Control-Expose-Headers", "Content-Length");
+
+  // IMPORTANT: end preflight here
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  next();
+});
+
+
+/**
+ * ================================
+ * HEALTH CHECK (USED BY GATE DEBUG)
+ * ================================
+ */
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok", service: "arise" });
+});
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
