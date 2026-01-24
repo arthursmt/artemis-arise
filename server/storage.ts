@@ -2,18 +2,18 @@ import { randomUUID } from "crypto";
 import { db } from "./db";
 import type {
   Proposal,
-  ProposalPayload,
   ProposalSummary,
   ProposalDetail,
   Decision,
   InsertDecision,
   ProposalStageType,
+  NormalizedProposalPayload,
 } from "@shared/schema";
 import { ProposalStage, DecisionType } from "@shared/schema";
 
 export interface IStorage {
   // Proposal operations
-  createProposal(payload: ProposalPayload): Promise<Proposal>;
+  createProposal(payload: NormalizedProposalPayload): Promise<Proposal>;
   getProposalsByStage(stage: ProposalStageType): Promise<ProposalSummary[]>;
   getProposalDetail(proposalId: string): Promise<ProposalDetail | undefined>;
   updateProposalStage(proposalId: string, stage: ProposalStageType): Promise<void>;
@@ -24,7 +24,7 @@ export interface IStorage {
 }
 
 export class SQLiteStorage implements IStorage {
-  async createProposal(payload: ProposalPayload): Promise<Proposal> {
+  async createProposal(payload: NormalizedProposalPayload): Promise<Proposal> {
     const proposalId = randomUUID();
     const submittedAt = new Date().toISOString();
     const stage = ProposalStage.DOC_REVIEW;
@@ -60,7 +60,7 @@ export class SQLiteStorage implements IStorage {
     }>;
 
     return rows.map((row) => {
-      const payload: ProposalPayload = JSON.parse(row.payload);
+      const payload: NormalizedProposalPayload = JSON.parse(row.payload);
       const members = payload.members || [];
       
       // Calculate evidence counts
