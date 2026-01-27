@@ -1,0 +1,153 @@
+ACTION PLAN (ENGLISH, COPY/PASTE TO REPLIT AGENT) — Fix Artemis Arise deploy crash (artemis-contracts schema missing) + confirm Hub secret naming
+
+## What’s happening (root cause)
+Arise deploy is failing with:
+  "Cannot find module .../node_modules/artemis-contracts/dist/schema"
+
+This means Arise’s code is importing a deep path (`artemis-contracts/dist/schema` or `.../dist/schema`) but the installed `artemis-contracts` package in production does NOT contain that built file at that path.
+
+This commonly happens when:
+1) `artemis-contracts` is installed from Git (not from npm), and the repo doesn’t ship prebuilt `dist/**`, and there is no `prepare/postinstall` script to build on install; OR
+2) The package builds `dist/index.js` but does not build/export `dist/schema.js`; OR
+3) The `"files"` field excludes schema output.
+
+Result: Arise starts, immediately crashes, Replit shows “crash loop”.
+
+## Goal
+Make `artemis-contracts` a reliable “source of truth” package that always provides schema/types at runtime, and make Arise import from the public entrypoint (NOT deep dist paths).
+
+---
+
+# STEP 1 — Fix artemis-contracts so schema is always available
+
+### 1A) Ensure schema exists in src and is exported from src/index.ts
+In `artemis-contracts/src/` ensure you have a `schema.ts` (or similar) and export it in `src/index.ts`, e.g.:
+
+// src/index.ts
+export * from "./schema";
+export * from "./types"; // if you have it
+
+If your schema file has a different name/location, adjust accordingly.
+
+### 1B) Ensure build outputs schema into dist
+In `artemis-contracts/tsconfig.json`, confirm it compiles all `src/**/*.ts` to `dist/**`.
+Typical minimum:
+- "rootDir": "src"
+- "outDir": "dist"
+- includes "src"
+
+### 1C) Ensure package.json includes schema in published/installable output
+In `artemis-contracts/package.json`, update to:
+
+{
+  "name": "artemis-contracts",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  }
+}
+
+Key point: add `"prepare": "npm run build"`.
+Why: When installing from a git repo, npm runs `prepare`, ensuring `dist/**` exists even if not committed.
+
+### 1D) Verify output locally in that repo
+Run (in artemis-contracts):
+- npm i
+- npm run build
+Confirm these files exist:
+- dist/index.js
+- dist/index.d.ts
+- dist/schema.js   (or whatever schema compiles to)
+- dist/schema.d.ts
+
+Commit + push these changes to `arthursmt/artemis-contracts`.
+
+---
+
+# STEP 2 — Fix Artemis Arise to stop importing deep dist paths
+
+Search in Artemis Arise repo for any of these imports:
+- "artemis-contracts/dist/schema"
+- "artemis-contracts/dist/..."
+- "artemis-contracts/schema" (if not exported)
+Replace with ONLY:
+- import { ... } from "artemis-contracts";
+
+Because the public entrypoint should re-export schema via `src/index.ts`.
+
+Example:
+BEFORE:
+  import { ProposalSchema } from "artemis-contracts/dist/schema";
+AFTER:
+  import { ProposalSchema } from "artemis-contracts";
+
+Commit this change.
+
+---
+
+# STEP 3 — Ensure Arise installs artemis-contracts in production
+
+In `artemis-arise/package.json`:
+1) Ensure `artemis-contracts` is in "dependencies" (NOT devDependencies).
+2) Point it to the source of truth repo. Example options:
+
+Option A (GitHub):
+  "dependencies": {
+    "artemis-contracts": "github:arthursmt/artemis-contracts#main"
+  }
+
+Option B (tag/commit pin — recommended for stability):
+  "artemis-contracts": "github:arthursmt/artemis-contracts#<COMMIT_SHA>"
+
+After updating, commit.
+
+---
+
+# STEP 4 — Replit deploy (Arise)
+In Replit (Arise project):
+1) “Shell”:
+   - npm ci  (or npm install)
+   - npm run build
+2) Confirm no crash on start:
+   - npm run start (or whatever Replit uses)
+3) Republish.
+
+Expected: deploy succeeds, `/api/health` responds with 200 and JSON (not “app not running”).
+
+---
+
+# STEP 5 — Hub secret naming (IMPORTANT correction)
+You wrote: “ARISE_GATE_URL = https://artemis-arise--arthursmt89.replit.app”
+That name is wrong for Hub (based on your Hub secrets screenshot).
+
+Hub should use:
+- ARISE_BASE_URL = https://artemis-arise--arthursmt89.replit.app
+
+NOT ARISE_GATE_URL.
+
+Also:
+- Use the PUBLISHED Arise URL (replit.app), not a dev worf.replit.dev URL.
+
+After Arise is successfully republished and stable, update Hub secret:
+- ARISE_BASE_URL = https://artemis-arise--arthursmt89.replit.app
+Then republish Hub.
+
+---
+
+# Notes about the other console warning
+The React DOM nesting warning (<div> inside <p>) is unrelated to Arise crashing. It won’t cause 502/503 or “app not running”. Fix later.
+
+---
+
+## What I need you (Replit Agent) to do now
+1) Implement Step 1 in artemis-contracts (export schema via index, add prepare script, ensure dist includes schema), push.
+2) Implement Step 2 + Step 3 in artemis-arise (no deep imports, dependency in dependencies), push.
+3) In Replit Arise, reinstall + build + republish.
+4) Tell me the final Arise health endpoint result (HTTP code + response body).
