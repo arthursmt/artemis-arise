@@ -4,3 +4,13 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz.git_old
+
+# Replit / generated assets
+attached_assets/
+
+# Local sqlite artifacts (runtime)
+data/*.db-wal
+data/*.db-shm
+data/*.db-journal
+data/*.db
+
