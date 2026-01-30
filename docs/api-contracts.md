@@ -1,169 +1,64 @@
-# ARTEMIS — API Contracts (Arise)
+# Artemis Arise — API Contracts
 
-## Purpose
+Arise is the source of truth. It validates and persists proposals, stages, and decisions.
 
-artemis-arise is the canonical backend for the ARTEMIS ecosystem. It is the single source of truth for proposals, proposal state, and backend validation rules.
-
-All frontends (artemis-hunt, artemis-gate) and the integration layer (artemis-hub) must treat Arise as authoritative.
-
----
-
-## Primary Endpoint
+## Proposal submission
 
 ### POST /api/proposals/submit
 
-This endpoint receives a proposal submission, normalizes the incoming request body, validates the canonical payload, persists the proposal, and returns a success response.
+Implementation:
+- server/routes.ts (handler starts around line ~104)
 
-Design goal: tolerate upstream payload variations without weakening backend contracts.
+Purpose:
+- Accept proposal submissions forwarded by the Hub.
+- Validate request body using proposalPayloadSchema.
+- Normalize the validated payload using normalizeProposalPayload.
+- Persist the proposal using storage.createProposal.
+- Return 201 with proposalId, stage, submittedAt.
 
----
+Validation:
+- proposalPayloadSchema.safeParse(req.body)
+- On failure: returns 400 with { error: bad_request, details: flattened errors }
 
-## Accepted Request Formats
+Normalization and persistence:
+- normalizedPayload = normalizeProposalPayload(parseResult.data)
+- proposal = storage.createProposal(normalizedPayload)
 
-Arise accepts two input shapes.
+Success response (201):
+{
+  "success": true,
+  "proposalId": "string",
+  "stage": "string",
+  "submittedAt": "string"
+}
 
-### Format A — Direct payload (canonical after normalization)
+Errors:
+- 400 bad_request (schema validation failed)
+- 500 internal_error (unexpected server error)
 
-    {
-      "groupId": "string",
-      "members": [
-        {
-          "memberId": "string",
-          "name": "string"
-        }
-      ]
-    }
+Logging:
+- logs contentLength, bodyKeys, membersCount, groupId on receipt
+- logs validation failed on schema error
+- logs proposalId and stage on success
 
-### Format B — Envelope payload (legacy / upstream wrapper)
+## Hunting polling endpoints (demo/E2E support)
 
-    {
-      "proposalId": "string",
-      "payload": {
-        "groupId": "string",
-        "members": [
-          {
-            "memberId": "string",
-            "name": "string"
-          }
-        ]
-      }
-    }
+### GET /api/hunt/proposals?status=CHANGES_REQUESTED
 
----
+- If status == CHANGES_REQUESTED: returns proposals in stage ProposalStage.CHANGES_REQUESTED
+- Else: returns { status, count: 0, proposals: [] }
 
-## Normalization Rules (Implemented)
+### GET /api/hunt/proposals/:proposalId
 
-Normalization always happens before schema validation.
+- Returns proposal detail if found
+- Returns 404 if not found
 
-Rules:
+## Proposal list and detail endpoints
 
-- If body.payload exists:
-  - body.payload is used as the canonical payload
-- If body.payload does not exist:
-  - body is treated as the canonical payload
-- Envelope-level fields (e.g. proposalId) are:
-  - preserved only for logging or debugging
-  - not part of the validated schema
+- List:
+  - GET /api/proposals
+  - GET /proposals
 
-Validation and persistence always operate on the canonical payload.
-
----
-
-## Validation (Implemented)
-
-After normalization, the canonical payload is validated against the backend schema.
-
-If validation fails:
-
-- The request is rejected
-- No data is persisted
-- A client error response is returned (typically HTTP 400)
-
----
-
-## Persistence (Implemented)
-
-When validation succeeds:
-
-- The proposal is persisted as the canonical record
-- An initial proposal state is assigned
-- A success response is returned (typically HTTP 201)
-
----
-
-## Proposal State (Current)
-
-### Initial State
-
-Every newly submitted proposal starts in the following state:
-
-    {
-      "status": "submitted"
-    }
-
-Meaning:
-
-- The proposal has been accepted and stored by Arise
-- It is eligible to appear in Gate inbox workflows
-
----
-
-## Proposal State Machine (Planned)
-
-The following states are planned for future iterations and may not be implemented yet:
-
-- under_review
-- approved
-- rejected
-- changes_requested
-
-Clients must never infer state transitions. State must always be read from Arise.
-
----
-
-## Decisions (Forward-Looking Contract)
-
-Future versions of Arise will record decisions as auditable events associated with a proposal.
-
-Conceptual structure:
-
-    {
-      "decision": "approved | rejected | changes_requested",
-      "reason": "string",
-      "decidedBy": "user | system",
-      "timestamp": "iso-8601"
-    }
-
-This structure is not necessarily implemented yet and serves as a forward contract.
-
----
-
-## Error Handling
-
-Expected error behavior:
-
-- 400 Bad Request — invalid canonical payload
-- 500 Internal Server Error — unexpected backend failure
-
-Security rule:
-
-- Stack traces or internal errors must never be exposed to clients
-
----
-
-## Contract Guarantees
-
-Arise guarantees:
-
-1. Normalization happens before validation
-2. Validation happens before persistence
-3. Only canonical payloads are persisted
-4. Upstream payload tolerance exists only at the submission boundary
-
----
-
-## Scope of This Document
-
-This document describes current backend behavior and explicitly marked forward-looking contracts.
-
-It does not replace artemis-contracts and does not define frontend UX or workflow behavior.
+- Detail:
+  - GET /api/proposals/:proposalId
+  - GET /proposals/:proposalId
