@@ -14,20 +14,56 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  // ============================================
-  // Hunting App Endpoints
-  // ============================================
-  
-  // POST /api/proposals/submit - Accept proposal submissions from Hunting
-  app.post("/api/proposals/submit", async (req, res) => {
-    try {
-      const parseResult = proposalPayloadSchema.safeParse(req.body);
-      
-      if (!parseResult.success) {
-        return res.status(400).json({
-          error: "Invalid proposal payload",
-          details: parseResult.error.flatten(),
-        });
+// ============================================
+// Hunting App Endpoints
+// ============================================
+
+// POST /api/proposals/submit - Accept proposal submissions from Hunting
+app.post("/api/proposals/submit", async (req, res) => {
+  try {
+    // Accept both shapes:
+    // A) { groupId, members, ... }
+    // B) { proposalId, payload: { groupId, members, ... } }
+    const rawBody: any = req.body ?? {};
+    const normalizedBody: any =
+      rawBody?.payload && typeof rawBody.payload === "object" ? rawBody.payload : rawBody;
+
+    // If you ever need it later, keep proposalId from wrapper or body
+    const incomingProposalId = rawBody?.proposalId ?? normalizedBody?.proposalId;
+
+    // Validate against existing schema using normalized body
+    const parseResult = proposalPayloadSchema.safeParse(normalizedBody);
+
+    if (!parseResult.success) {
+      return res.status(400).json({
+        error: "Invalid proposal payload",
+        details: parseResult.error.flatten(),
+        // Helpful hint for debugging integration issues (safe to keep)
+        meta: {
+          wrapped: !!rawBody?.payload,
+          incomingProposalId: incomingProposalId ?? null,
+          normalizedKeys: Object.keys(normalizedBody ?? {}),
+        },
+      });
+    }
+
+    const proposal = await storage.createProposal(parseResult.data);
+
+    console.log(
+      `[Proposals] Created proposal ${proposal.proposalId} for group ${parseResult.data.groupId}`
+    );
+
+    return res.status(201).json({
+      success: true,
+      proposalId: proposal.proposalId,
+      stage: proposal.stage,
+      submittedAt: proposal.submittedAt,
+    });
+  } catch (error) {
+    console.error("[Proposals] Error creating proposal:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
       }
 
       const proposal = await storage.createProposal(parseResult.data);
